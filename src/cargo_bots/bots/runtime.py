@@ -15,6 +15,12 @@ from cargo_bots.services.import_service import ImportService
 
 
 @dataclass(slots=True)
+class SingleBotRuntime:
+    bot: Bot
+    dispatcher: Dispatcher
+
+
+@dataclass(slots=True)
 class BotRuntime:
     admin_bot: Bot
     client_bot: Bot
@@ -27,27 +33,35 @@ def create_bot_runtime(
     client_service: ClientService,
     import_service: ImportService,
 ) -> BotRuntime:
-    admin_bot = Bot(
+    admin_runtime = create_admin_runtime(settings, import_service)
+    client_runtime = create_client_runtime(settings, client_service)
+
+    return BotRuntime(
+        admin_bot=admin_runtime.bot,
+        client_bot=client_runtime.bot,
+        admin_dispatcher=admin_runtime.dispatcher,
+        client_dispatcher=client_runtime.dispatcher,
+    )
+
+
+def create_admin_runtime(settings: Settings, import_service: ImportService) -> SingleBotRuntime:
+    bot = Bot(
         settings.admin_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    client_bot = Bot(
+    dispatcher = Dispatcher(storage=_build_storage(settings))
+    dispatcher.include_router(create_admin_router(import_service, settings))
+    return SingleBotRuntime(bot=bot, dispatcher=dispatcher)
+
+
+def create_client_runtime(settings: Settings, client_service: ClientService) -> SingleBotRuntime:
+    bot = Bot(
         settings.client_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-
-    admin_dispatcher = Dispatcher(storage=_build_storage(settings))
-    client_dispatcher = Dispatcher(storage=_build_storage(settings))
-
-    admin_dispatcher.include_router(create_admin_router(import_service, settings))
-    client_dispatcher.include_router(create_client_router(client_service))
-
-    return BotRuntime(
-        admin_bot=admin_bot,
-        client_bot=client_bot,
-        admin_dispatcher=admin_dispatcher,
-        client_dispatcher=client_dispatcher,
-    )
+    dispatcher = Dispatcher(storage=_build_storage(settings))
+    dispatcher.include_router(create_client_router(client_service))
+    return SingleBotRuntime(bot=bot, dispatcher=dispatcher)
 
 
 def _build_storage(settings: Settings):
@@ -57,4 +71,3 @@ def _build_storage(settings: Settings):
 
         return RedisStorage(redis=Redis.from_url(settings.redis_url))
     return MemoryStorage()
-

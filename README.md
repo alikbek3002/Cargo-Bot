@@ -34,6 +34,7 @@ pip install -e .
 
 3. Скопируйте `.env.example` в `.env` и заполните:
 
+- `APP_ROLE`
 - `ADMIN_BOT_TOKEN`
 - `CLIENT_BOT_TOKEN`
 - `DATABASE_URL`
@@ -53,6 +54,12 @@ uvicorn cargo_bots.main:app --host 0.0.0.0 --port 8000
 
 ```bash
 celery -A cargo_bots.tasks.celery_app:celery_app worker -l info
+```
+
+Для единой стартовой команды можно использовать launcher:
+
+```bash
+APP_ROLE=combined_web python -m cargo_bots.run
 ```
 
 ## Импорт старых клиентов
@@ -79,6 +86,31 @@ python -m cargo_bots.tools.import_legacy path/to/legacy_clients.csv
 Если `WEBHOOK_BASE_URL` задан, на старте приложение само регистрирует webhook для обоих ботов.
 
 `ADMIN_SECRET_TOKEN` и `CLIENT_SECRET_TOKEN` не связаны с ролями пользователей. Это отдельные секреты для проверки входящих webhook-запросов Telegram к `/webhook/admin` и `/webhook/client`.
+
+## Railway
+
+Если хотите запускать всё раздельно, создайте три Railway service из одного репозитория:
+
+- `admin-web`
+- `client-web`
+- `worker`
+
+Во всех трёх:
+
+- `Root Directory` -> `/`
+- `Start Command` можно не задавать вручную, потому что он уже есть в `railway.toml`
+
+Задайте только разный `APP_ROLE`:
+
+- `admin-web` -> `APP_ROLE=admin_web`
+- `client-web` -> `APP_ROLE=client_web`
+- `worker` -> `APP_ROLE=worker`
+
+Для `admin-web` задайте `WEBHOOK_BASE_URL` на публичный домен именно этого сервиса. Тогда бот зарегистрирует webhook `https://.../webhook/admin`.
+
+Для `client-web` задайте `WEBHOOK_BASE_URL` на публичный домен именно этого сервиса. Тогда бот зарегистрирует webhook `https://.../webhook/client`.
+
+Для `worker` `WEBHOOK_BASE_URL` не нужен.
 
 ## Админ-бот
 
