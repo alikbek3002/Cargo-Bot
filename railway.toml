@@ -1,6 +1,6 @@
 [build]
 builder = "RAILPACK"
-buildCommand = "pip install --upgrade pip build setuptools && pip install ."
+buildCommand = "pip install --upgrade pip && pip install -r requirements.txt"
 
 [deploy]
-startCommand = "python -m cargo_bots.run"
+startCommand = "PYTHONPATH=src python -m cargo_bots.run"

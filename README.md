@@ -99,6 +99,7 @@ python -m cargo_bots.tools.import_legacy path/to/legacy_clients.csv
 
 - `Root Directory` -> `/`
 - `Start Command` можно не задавать вручную, потому что он уже есть в `railway.toml`
+- если Railway не подхватил его автоматически, укажите вручную: `PYTHONPATH=src python -m cargo_bots.run`
 
 Задайте только разный `APP_ROLE`:
 
