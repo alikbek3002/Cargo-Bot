@@ -8,7 +8,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Для локальной разработки: .env.development
+    # На Railway: переменные из Dashboard (файл не нужен)
+    model_config = SettingsConfigDict(
+        env_file=(".env.development", ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_name: str = "Cargo Bots"
     env: Literal["development", "staging", "production"] = "development"

@@ -1,8 +1,16 @@
+# ── Env файлы ────────────────────────────────────────────
+# Не коммитим реальные значения переменных окружения
 .env
-.env.*
+.env.development
+.env.production
+.env.local
 !.env.example
+!.env.production.example
 
+# ── OS ───────────────────────────────────────────────────
 .DS_Store
+
+# ── Python ───────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -11,10 +19,12 @@ __pycache__/
 .venv/
 venv/
 
+# ── Build / Storage ─────────────────────────────────────
 storage/
 dist/
 build/
 *.egg-info/
 
+# ── Данные ───────────────────────────────────────────────
 *.xls
 *.xlsx

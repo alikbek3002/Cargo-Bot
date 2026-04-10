@@ -15,15 +15,40 @@ Backend для двух Telegram-ботов cargo:
 - `pandas` + `calamine` для чтения `.xls/.xlsx`
 - `S3-compatible storage` или локальное storage для оригиналов Excel
 
-## Структура
+## Структура проекта
 
-- `src/cargo_bots/main.py` — FastAPI app factory
-- `src/cargo_bots/bots/` — aiogram handlers, menus, runtime
-- `src/cargo_bots/services/` — бизнес-логика регистрации, импорта, парсинга и уведомлений
-- `src/cargo_bots/tasks/` — Celery app и worker jobs
-- `src/cargo_bots/tools/import_legacy.py` — загрузка старых клиентов из CSV
+```
+├── src/cargo_bots/          # Основной Python-пакет
+│   ├── main.py              # Combined app (оба бота)
+│   ├── admin_app.py         # Только admin бот
+│   ├── client_app.py        # Только client бот
+│   ├── app_factory.py       # FastAPI app factory
+│   ├── bots/                # aiogram handlers, menus, runtime
+│   ├── services/            # Бизнес-логика
+│   ├── tasks/               # Celery app и worker jobs
+│   ├── core/                # Конфиг, логирование
+│   └── db/                  # SQLAlchemy модели и сессии
+│
+├── admin-web/               # Railway сервис: admin бот
+│   ├── Dockerfile
+│   └── railway.toml
+│
+├── client-web/              # Railway сервис: client бот
+│   ├── Dockerfile
+│   └── railway.toml
+│
+├── worker/                  # Railway сервис: Celery worker
+│   ├── Dockerfile
+│   └── railway.toml
+│
+├── requirements.txt         # Python зависимости (общие)
+├── pyproject.toml           # Настройки проекта
+├── .env.example             # Шаблон переменных окружения
+├── .env.production.example  # Шаблон для продакшна (Railway)
+└── example_adress.txt       # Шаблон адреса в Китае
+```
 
-## Быстрый старт
+## Быстрый старт (локальная разработка)
 
 1. Создайте и активируйте виртуальное окружение.
 2. Установите зависимости:
@@ -32,9 +57,13 @@ Backend для двух Telegram-ботов cargo:
 pip install -e .
 ```
 
-3. Скопируйте `.env.example` в `.env` и заполните:
+3. Скопируйте `.env.example` в `.env.development` и заполните:
 
-- `APP_ROLE`
+```bash
+cp .env.example .env.development
+```
+
+Обязательные переменные:
 - `ADMIN_BOT_TOKEN`
 - `CLIENT_BOT_TOKEN`
 - `DATABASE_URL`
@@ -62,6 +91,44 @@ celery -A cargo_bots.tasks.celery_app:celery_app worker -l info
 APP_ROLE=combined_web python -m cargo_bots.run
 ```
 
+## ENV файлы
+
+| Файл | Назначение | Коммитить? |
+|------|-----------|------------|
+| `.env.example` | Шаблон со всеми переменными и комментариями | ✅ Да |
+| `.env.production.example` | Шаблон для Railway (все секреты пустые) | ✅ Да |
+| `.env.development` | Локальные dev-значения (ваши токены, БД) | ❌ Нет |
+
+На Railway переменные задаются **не через файлы**, а через **Dashboard → Variables**.
+
+## Railway деплой
+
+Проект разбит на три Railway-сервиса из одного репозитория. Каждый сервис использует свой Dockerfile.
+
+### Настройка каждого сервиса
+
+| Сервис | Root Directory | Dockerfile Path | WEBHOOK_BASE_URL |
+|--------|---------------|-----------------|------------------|
+| admin-web | `/` (корень) | `admin-web/Dockerfile` | Домен этого сервиса |
+| client-web | `/` (корень) | `client-web/Dockerfile` | Домен этого сервиса |
+| worker | `/` (корень) | `worker/Dockerfile` | Не нужен |
+
+### Шаги для каждого сервиса:
+
+1. Создайте сервис в Railway из репозитория
+2. **Settings → Source → Root Directory**: оставьте `/` (корень)
+3. **Settings → Build → Dockerfile Path**: укажите путь (см. таблицу)
+4. **Variables**: задайте все переменные из `.env.production.example`
+5. Для `admin-web` и `client-web`: установите `WEBHOOK_BASE_URL` = сгенерированный Railway домен
+
+### Общие переменные (задаются через Shared Variables или для каждого сервиса):
+
+- `DATABASE_URL` — из Railway PostgreSQL плагина
+- `REDIS_URL` — из Railway Redis плагина
+- `ADMIN_BOT_TOKEN`, `CLIENT_BOT_TOKEN` — токены ботов
+- `STORAGE_BACKEND=s3` и S3-ключи
+- `ENV=production`
+
 ## Импорт старых клиентов
 
 CSV должен содержать колонки:
@@ -86,34 +153,6 @@ python -m cargo_bots.tools.import_legacy path/to/legacy_clients.csv
 Если `WEBHOOK_BASE_URL` задан, на старте приложение само регистрирует webhook для обоих ботов.
 
 `ADMIN_SECRET_TOKEN` и `CLIENT_SECRET_TOKEN` не связаны с ролями пользователей. Это отдельные секреты для проверки входящих webhook-запросов Telegram к `/webhook/admin` и `/webhook/client`.
-
-## Railway
-
-Самый простой вариант для Railway: используйте три отдельные папки как три разные service из одного репозитория:
-
-- `admin-web`
-- `client-web`
-- `worker`
-
-Для `admin-web` service:
-
-- `Root Directory` -> `/admin-web`
-- `Start Command` можно не задавать вручную, потому что он уже есть в `admin-web/railway.toml`
-- `WEBHOOK_BASE_URL` должен быть доменом именно этого сервиса
-
-Для `client-web` service:
-
-- `Root Directory` -> `/client-web`
-- `Start Command` можно не задавать вручную, потому что он уже есть в `client-web/railway.toml`
-- `WEBHOOK_BASE_URL` должен быть доменом именно этого сервиса
-
-Для `worker` service:
-
-- `Root Directory` -> `/worker`
-- `Start Command` можно не задавать вручную, потому что он уже есть в `worker/railway.toml`
-- `WEBHOOK_BASE_URL` не нужен
-
-`APP_ROLE` для такого сценария задавать не нужно.
 
 ## Админ-бот
 
