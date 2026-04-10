@@ -1,0 +1,21 @@
+{
+  "sheet_name": 0,
+  "client_code_aliases": [
+    "код клиента",
+    "код",
+    "client code",
+    "customer code",
+    "marking",
+    "label"
+  ],
+  "track_code_aliases": [
+    "трек",
+    "трек код",
+    "номер отслеживания",
+    "track",
+    "tracking number",
+    "waybill",
+    "накладная"
+  ]
+}
+
