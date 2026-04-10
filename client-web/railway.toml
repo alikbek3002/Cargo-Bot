@@ -1,0 +1,6 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "pip install --upgrade pip && pip install -r requirements.txt"
+
+[deploy]
+startCommand = "python main.py"

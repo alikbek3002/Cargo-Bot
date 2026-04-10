@@ -89,29 +89,31 @@ python -m cargo_bots.tools.import_legacy path/to/legacy_clients.csv
 
 ## Railway
 
-Если хотите запускать всё раздельно, создайте три Railway service из одного репозитория:
+Самый простой вариант для Railway: используйте три отдельные папки как три разные service из одного репозитория:
 
 - `admin-web`
 - `client-web`
 - `worker`
 
-Во всех трёх:
+Для `admin-web` service:
 
-- `Root Directory` -> `/`
-- `Start Command` можно не задавать вручную, потому что он уже есть в `railway.toml`
-- если Railway не подхватил его автоматически, укажите вручную: `PYTHONPATH=src python -m cargo_bots.run`
+- `Root Directory` -> `/admin-web`
+- `Start Command` можно не задавать вручную, потому что он уже есть в `admin-web/railway.toml`
+- `WEBHOOK_BASE_URL` должен быть доменом именно этого сервиса
 
-Задайте только разный `APP_ROLE`:
+Для `client-web` service:
 
-- `admin-web` -> `APP_ROLE=admin_web`
-- `client-web` -> `APP_ROLE=client_web`
-- `worker` -> `APP_ROLE=worker`
+- `Root Directory` -> `/client-web`
+- `Start Command` можно не задавать вручную, потому что он уже есть в `client-web/railway.toml`
+- `WEBHOOK_BASE_URL` должен быть доменом именно этого сервиса
 
-Для `admin-web` задайте `WEBHOOK_BASE_URL` на публичный домен именно этого сервиса. Тогда бот зарегистрирует webhook `https://.../webhook/admin`.
+Для `worker` service:
 
-Для `client-web` задайте `WEBHOOK_BASE_URL` на публичный домен именно этого сервиса. Тогда бот зарегистрирует webhook `https://.../webhook/client`.
+- `Root Directory` -> `/worker`
+- `Start Command` можно не задавать вручную, потому что он уже есть в `worker/railway.toml`
+- `WEBHOOK_BASE_URL` не нужен
 
-Для `worker` `WEBHOOK_BASE_URL` не нужен.
+`APP_ROLE` для такого сценария задавать не нужно.
 
 ## Админ-бот
 

@@ -14,7 +14,8 @@ APP_TARGETS: Final[dict[str, str]] = {
 def normalize_app_role(value: str | None) -> str:
     if value is None or not value.strip():
         raise RuntimeError(
-            "APP_ROLE is not set. Use one of: admin_web, client_web, combined_web, worker."
+            "APP_ROLE is not set. Use one of: admin_web, client_web, combined_web, worker. "
+            "On Railway you can also deploy from /admin-web, /client-web, or /worker."
         )
     role = value.strip().lower()
     if role not in {*APP_TARGETS, "worker"}:
