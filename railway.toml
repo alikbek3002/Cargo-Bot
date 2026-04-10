@@ -1,0 +1,3 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "pip install --upgrade pip build setuptools && pip install ."
