@@ -33,7 +33,7 @@ def create_bot_runtime(
     client_service: ClientService,
     import_service: ImportService,
 ) -> BotRuntime:
-    admin_runtime = create_admin_runtime(settings, import_service)
+    admin_runtime = create_admin_runtime(settings, import_service, client_service)
     client_runtime = create_client_runtime(settings, client_service)
 
     return BotRuntime(
@@ -46,14 +46,14 @@ def create_bot_runtime(
 
 from cargo_bots.bots.middlewares.logging import LoggingMiddleware
 
-def create_admin_runtime(settings: Settings, import_service: ImportService) -> SingleBotRuntime:
+def create_admin_runtime(settings: Settings, import_service: ImportService, client_service: ClientService) -> SingleBotRuntime:
     bot = Bot(
         settings.admin_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dispatcher = Dispatcher(storage=_build_storage(settings))
     dispatcher.update.outer_middleware(LoggingMiddleware())
-    dispatcher.include_router(create_admin_router(import_service, settings))
+    dispatcher.include_router(create_admin_router(import_service, client_service, settings))
     return SingleBotRuntime(bot=bot, dispatcher=dispatcher)
 
 

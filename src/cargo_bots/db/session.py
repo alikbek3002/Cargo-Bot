@@ -35,7 +35,13 @@ class Database:
             yield session
 
     async def create_all(self) -> None:
+        from sqlalchemy import text
         async with self.engine.begin() as connection:
+            if "postgresql" in self.engine.url.drivername:
+                try:
+                    await connection.execute(text("ALTER TYPE parcelstatus ADD VALUE IF NOT EXISTS 'ISSUED'"))
+                except Exception:
+                    pass
             await connection.run_sync(Base.metadata.create_all)
 
     async def dispose(self) -> None:

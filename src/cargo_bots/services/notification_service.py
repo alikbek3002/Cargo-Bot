@@ -97,6 +97,7 @@ class NotificationService:
             ParcelStatus.EMPTY.value: "Пока ничего нет",
             ParcelStatus.IN_TRANSIT.value: "В пути",
             ParcelStatus.READY.value: "Готов к выдаче",
+            ParcelStatus.ISSUED.value: "Успешно выдано",
         }
         return (
             "📦 Обновление по вашему товару\n\n"

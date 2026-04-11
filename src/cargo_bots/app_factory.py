@@ -71,7 +71,7 @@ def create_combined_app() -> FastAPI:
 
 def create_admin_app() -> FastAPI:
     services = _build_services()
-    runtime = create_admin_runtime(services.settings, services.import_service)
+    runtime = create_admin_runtime(services.settings, services.import_service, services.client_service)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

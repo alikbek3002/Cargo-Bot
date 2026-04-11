@@ -65,12 +65,84 @@ class ClientService:
             if not client:
                 raise ClientNotRegisteredError("Клиент ещё не зарегистрирован.")
 
+            from cargo_bots.db.models import ParcelStatus
             result = await session.scalars(
                 select(Parcel)
                 .where(Parcel.client_id == client.id)
+                .where(Parcel.status != ParcelStatus.ISSUED)
                 .order_by(Parcel.updated_at.desc(), Parcel.created_at.desc())
             )
             return list(result.all())
+
+    async def get_ready_parcels_by_client_code(self, client_code: str) -> list[Parcel]:
+        from cargo_bots.db.models import ParcelStatus
+        normalized_code = normalize_client_code(client_code)
+        async with self.database.session() as session:
+            client = await session.scalar(select(Client).where(Client.client_code == normalized_code))
+            if not client:
+                return []
+            result = await session.scalars(
+                select(Parcel)
+                .where(Parcel.client_id == client.id)
+                .where(Parcel.status == ParcelStatus.READY)
+            )
+            return list(result.all())
+
+    async def get_parcel_by_track_code(self, track_code: str) -> Parcel | None:
+        async with self.database.session() as session:
+            return await session.scalar(select(Parcel).where(Parcel.track_code == track_code))
+
+    async def mark_parcels_as_issued(self, parcel_ids: list[object]) -> int:
+        from cargo_bots.db.models import ParcelStatus, ParcelEvent, NotificationOutbox
+        from datetime import datetime, UTC
+        from sqlalchemy.orm import selectinload
+        
+        async with self.database.session() as session:
+            result = await session.scalars(
+                select(Parcel)
+                .options(selectinload(Parcel.client))
+                .where(Parcel.id.in_(parcel_ids))
+                .where(Parcel.status == ParcelStatus.READY)
+            )
+            parcels = list(result.all())
+            if not parcels:
+                return 0
+                
+            updated_count = 0
+            for parcel in parcels:
+                parcel.status = ParcelStatus.ISSUED
+                parcel.last_seen_at = datetime.now(tz=UTC)
+                
+                session.add(
+                    ParcelEvent(
+                        parcel=parcel,
+                        old_status=ParcelStatus.READY,
+                        new_status=ParcelStatus.ISSUED,
+                        payload={
+                            "track_code": parcel.track_code,
+                            "client_code": parcel.client.client_code,
+                        },
+                    )
+                )
+
+                if parcel.client.telegram_chat_id:
+                    session.add(
+                        NotificationOutbox(
+                            client=parcel.client,
+                            parcel=parcel,
+                            kind="parcel_status_updated",
+                            dedupe_key=f"parcel:{parcel.track_code}:ISSUED",
+                            payload={
+                                "track_code": parcel.track_code,
+                                "status": ParcelStatus.ISSUED.value,
+                                "client_code": parcel.client.client_code,
+                            },
+                        )
+                    )
+                updated_count += 1
+
+            await session.commit()
+            return updated_count
 
     async def search_client_parcels(self, telegram_user_id: int, query: str) -> list[Parcel]:
         async with self.database.session() as session:
@@ -80,10 +152,12 @@ class ClientService:
             if not client:
                 raise ClientNotRegisteredError("Клиент ещё не зарегистрирован.")
 
+            from cargo_bots.db.models import ParcelStatus
             result = await session.scalars(
                 select(Parcel)
                 .where(Parcel.client_id == client.id)
                 .where(Parcel.track_code.ilike(f"%{query}%"))
+                .where(Parcel.status != ParcelStatus.ISSUED)
                 .order_by(Parcel.updated_at.desc(), Parcel.created_at.desc())
             )
             return list(result.all())

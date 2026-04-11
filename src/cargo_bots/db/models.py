@@ -14,6 +14,7 @@ class ParcelStatus(str, enum.Enum):
     EMPTY = "EMPTY"
     IN_TRANSIT = "IN_TRANSIT"
     READY = "READY"
+    ISSUED = "ISSUED"
 
 
 class ImportStatus(str, enum.Enum):

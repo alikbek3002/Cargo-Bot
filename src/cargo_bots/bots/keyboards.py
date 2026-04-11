@@ -32,7 +32,8 @@ def client_menu_keyboard() -> ReplyKeyboardMarkup:
 def admin_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Загрузить Excel"), KeyboardButton(text="Последние импорты")],
+            [KeyboardButton(text="Загрузить Excel"), KeyboardButton(text="Выдать товары")],
+            [KeyboardButton(text="Последние импорты")],
             [KeyboardButton(text="Нераспознанные строки"), KeyboardButton(text="Статистика")],
         ],
         resize_keyboard=True,
