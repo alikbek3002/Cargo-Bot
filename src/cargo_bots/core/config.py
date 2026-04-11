@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://cargo:cargo@localhost:5432/cargo"
     redis_url: str = "redis://localhost:6379/0"
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def replace_postgres_scheme(cls, v: str) -> str:
+        if isinstance(v, str) and v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     admin_bot_token: str = ""
     client_bot_token: str = ""
     admin_secret_token: str = ""
