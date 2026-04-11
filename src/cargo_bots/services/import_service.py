@@ -202,21 +202,30 @@ class ImportService:
                 parcels[row.track_code] = parcel
                 new_parcels += 1
             else:
-                changed = (
-                    parcel.client_id != client.id
-                    or parcel.status != ParcelStatus.IN_TRANSIT
-                    or parcel.raw_row != row.raw_row
-                )
-                parcel.client = client
-                parcel.last_import_job = job
-                parcel.raw_row = row.raw_row
-                parcel.last_seen_at = datetime.now(tz=UTC)
-                if parcel.status != ParcelStatus.IN_TRANSIT:
-                    parcel.status = ParcelStatus.IN_TRANSIT
-                if changed:
-                    updated_parcels += 1
+                is_safe_to_modify = parcel.status not in (ParcelStatus.READY, ParcelStatus.ISSUED)
+                
+                if is_safe_to_modify:
+                    changed = (
+                        parcel.client_id != client.id
+                        or parcel.status != ParcelStatus.IN_TRANSIT
+                        or parcel.raw_row != row.raw_row
+                    )
+                    parcel.client = client
+                    parcel.last_import_job = job
+                    parcel.raw_row = row.raw_row
+                    parcel.last_seen_at = datetime.now(tz=UTC)
+                    if parcel.status != ParcelStatus.IN_TRANSIT:
+                        parcel.status = ParcelStatus.IN_TRANSIT
+                    if changed:
+                        updated_parcels += 1
+                else:
+                    # Посылка уже готова или выдана. Игнорируем статус и изменение владельца,
+                    # чтобы не было откатов. Только обновляем время активности.
+                    parcel.last_seen_at = datetime.now(tz=UTC)
 
-            if is_new or old_status != ParcelStatus.IN_TRANSIT:
+            # Создаем события и отправляем уведомления ТОЛЬКО если статус
+            # реально перешел в IN_TRANSIT (либо новая, либо была EMPTY)
+            if parcel.status == ParcelStatus.IN_TRANSIT and old_status != ParcelStatus.IN_TRANSIT:
                 session.add(
                     ParcelEvent(
                         parcel=parcel,
@@ -225,30 +234,30 @@ class ImportService:
                         new_status=ParcelStatus.IN_TRANSIT,
                         payload={
                             "track_code": row.track_code,
-                            "client_code": row.client_code,
+                            "client_code": client.client_code,
                             "raw_row": row.raw_row,
                         },
                     )
                 )
 
-            if client.telegram_chat_id:
-                dedupe_key = self._notification_dedupe_key(row.track_code)
-                if dedupe_key not in existing_notifications:
-                    session.add(
-                        NotificationOutbox(
-                            client=client,
-                            parcel=parcel,
-                            kind="parcel_status_updated",
-                            dedupe_key=dedupe_key,
-                            payload={
-                                "track_code": row.track_code,
-                                "status": ParcelStatus.IN_TRANSIT.value,
-                                "client_code": row.client_code,
-                            },
-                            status=NotificationStatus.PENDING,
+                if client.telegram_chat_id:
+                    dedupe_key = self._notification_dedupe_key(row.track_code)
+                    if dedupe_key not in existing_notifications:
+                        session.add(
+                            NotificationOutbox(
+                                client=client,
+                                parcel=parcel,
+                                kind="parcel_status_updated",
+                                dedupe_key=dedupe_key,
+                                payload={
+                                    "track_code": row.track_code,
+                                    "status": ParcelStatus.IN_TRANSIT.value,
+                                    "client_code": client.client_code,
+                                },
+                                status=NotificationStatus.PENDING,
+                            )
                         )
-                    )
-                    existing_notifications.add(dedupe_key)
+                        existing_notifications.add(dedupe_key)
 
             matched_rows += 1
 
