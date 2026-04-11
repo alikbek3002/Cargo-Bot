@@ -22,7 +22,7 @@ def client_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="📦 Мои товары"), KeyboardButton(text="🔍 Поиск по трек-коду")],
             [KeyboardButton(text="📍 Контакты/Адрес склада"), KeyboardButton(text="🕒 График работы")],
             [KeyboardButton(text="🏠 Адрес в Китае"), KeyboardButton(text="👤 Профиль")],
-            [KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="🗄 Выданные товары"), KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
     )

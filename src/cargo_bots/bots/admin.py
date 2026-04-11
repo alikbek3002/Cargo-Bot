@@ -20,7 +20,7 @@ from cargo_bots.core.config import Settings
 from cargo_bots.db.models import ImportStatus, ParcelStatus
 from cargo_bots.services.client_service import ClientService
 from cargo_bots.services.import_service import ImportService
-from cargo_bots.tasks.jobs import enqueue_import_processing
+from cargo_bots.tasks.jobs import enqueue_import_processing, flush_outbox_task
 
 
 class AdminIssueStates(StatesGroup):
@@ -145,6 +145,7 @@ def create_admin_router(
         try:
             count = await import_service.mark_import_as_ready(import_job.id)
             if count > 0:
+                flush_outbox_task.delay()
                 await callback.answer(f"✅ {count} товаров → Готов к выдаче!", show_alert=True)
                 await callback.message.edit_text(
                     callback.message.text + f"\n\n✅ {count} товаров готовы к выдаче",
@@ -293,6 +294,7 @@ def create_admin_router(
             count = await client_service.mark_parcels_as_issued(parcel_ids)
             await state.clear()
             if count > 0:
+                flush_outbox_task.delay()
                 await callback.answer(f"🎉 Выдано {count} товаров!", show_alert=True)
                 await callback.message.edit_text(
                     callback.message.text + f"\n\n🎉 Выдано: {count} шт.",

@@ -243,6 +243,41 @@ def create_client_router(client_service: ClientService) -> Router:
         await message.answer("\n".join(lines), parse_mode="Markdown")
 
     # ──────────────────────────────────────
+    #  Выданные товары (Архив)
+    # ──────────────────────────────────────
+    @router.message(F.text == "🗄 Выданные товары")
+    async def archived_parcels_handler(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        try:
+            parcels = await client_service.list_issued_parcels(message.from_user.id)
+        except ClientNotRegisteredError:
+            await send_home(
+                message,
+                greeting="⚠️ Сначала зарегистрируйтесь, чтобы смотреть историю товаров.",
+            )
+            return
+
+        if not parcels:
+            await message.answer(
+                "🗄 **Выданные товары**\n\n"
+                "В вашем архиве пока нет товаров.\n"
+                "Когда вы получите свои первые товары, они отобразятся здесь.",
+                parse_mode="Markdown",
+            )
+            return
+
+        lines = ["🗄 **Архив товаров (последние выданные):**", ""]
+        # Покажем последние 50, чтобы сообщение не обрезало
+        for p in parcels[:50]:
+            issued_date = p.last_seen_at.strftime('%d.%m.%Y %H:%M') if p.last_seen_at else "Неизвестно"
+            lines.append(f"🎉 **{p.track_code}**\n   └ Выдан: {issued_date}")
+        
+        if len(parcels) > 50:
+            lines.append(f"\n*Показаны последние 50 из {len(parcels)} выдач.*")
+
+        await message.answer("\n".join(lines), parse_mode="Markdown")
+
+    # ──────────────────────────────────────
     #  Поиск по трек-коду (FSM)
     # ──────────────────────────────────────
     @router.message(F.text == "🔍 Поиск по трек-коду")

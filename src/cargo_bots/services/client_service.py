@@ -57,6 +57,23 @@ class ClientService:
             address=self.address_service.render(client.client_code),
         )
 
+    async def list_issued_parcels(self, telegram_user_id: int) -> list[Parcel]:
+        async with self.database.session() as session:
+            client = await session.scalar(
+                select(Client).where(Client.telegram_user_id == telegram_user_id)
+            )
+            if not client:
+                raise ClientNotRegisteredError("Клиент ещё не зарегистрирован.")
+
+            from cargo_bots.db.models import ParcelStatus
+            result = await session.scalars(
+                select(Parcel)
+                .where(Parcel.client_id == client.id)
+                .where(Parcel.status == ParcelStatus.ISSUED)
+                .order_by(Parcel.last_seen_at.desc())
+            )
+            return list(result.all())
+
     async def list_client_parcels(self, telegram_user_id: int) -> list[Parcel]:
         async with self.database.session() as session:
             client = await session.scalar(
