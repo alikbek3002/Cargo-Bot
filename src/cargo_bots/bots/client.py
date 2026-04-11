@@ -178,9 +178,76 @@ def create_client_router(client_service: ClientService) -> Router:
 
         await message.answer("\n".join(lines))
 
+    @router.message(F.text == "📍 Контакты/Адрес склада")
+    async def contacts_handler(message: Message) -> None:
+        await message.answer(
+            "📍 **Наши контакты и склад**\n\n"
+            "Свяжитесь с нами для любых вопросов:\n"
+            "📞 Телефон: +996 XXX XXX XXX (подставьте реальный номер)\n"
+            "💬 WhatsApp: wa.me/996XXXXXXXXX\n\n"
+            "Адрес склада выдачи уточняйте у менеджеров."
+        )
+
+    @router.message(F.text == "🕒 График работы")
+    async def schedule_handler(message: Message) -> None:
+        await message.answer(
+            "🕒 **График работы:**\n\n"
+            "ПН-СУББОТА С 10:00 - 19:00\n"
+            "Воскресенье — выходной"
+        )
+
+    @router.message(F.text == "ℹ️ Как искать")
+    async def how_to_search_handler(message: Message) -> None:
+        await message.answer(
+            "ℹ️ **Как искать:**\n\n"
+            "• Минимум 3 символа: `ISL`\n"
+            "• Точнее: `ISL-1124`\n"
+            "• Чем точнее запрос — тем лучше результат.\n\n"
+            "Просто отправьте текст в чат, и бот найдет совпадения среди ваших товаров."
+        )
+
+    @router.message(F.text == "💰 Оплата")
+    async def payment_handler(message: Message) -> None:
+        await message.answer(
+            "💰 Оплата только наличными — в $ или в сомах."
+        )
+
+    @router.message(F.text == "❓ Частые вопросы")
+    async def faq_handler(message: Message) -> None:
+        await message.answer(
+            "❓ **Частые вопросы**\n\n"
+            "В этом разделе вы можете добавить ответы на популярные вопросы ваших клиентов."
+        )
+
     @router.message()
     async def fallback_handler(message: Message) -> None:
-        await send_home(message)
+        query = (message.text or "").strip()
+        
+        # Если это не похоже на поиск (коротко) или просто непонятное действие:
+        if len(query) < 3:
+            await send_home(message, greeting="Я вас не понял. Если вы хотите найти товар, введите минимум 3 символа из трек-кода.")
+            return
+
+        try:
+            parcels = await client_service.search_client_parcels(message.from_user.id, query)
+        except ClientNotRegisteredError:
+            await send_home(message)
+            return
+
+        if not parcels:
+            await message.answer(
+                f"🤷‍♂️ по запросу `{query}` ничего не найдено среди ваших товаров.\n"
+                f"Текущий статус: Товар еще не прибыл",
+                parse_mode="Markdown"
+            )
+            return
+
+        lines = [f"🔍 **Результаты поиска по '{query}':**", ""]
+        for p in parcels:
+            status_emoji = "🚚" if p.status == ParcelStatus.IN_TRANSIT else "✅"
+            lines.append(f"{status_emoji} {p.track_code} — {p.status.value}")
+        
+        await message.answer("\n".join(lines), parse_mode="Markdown")
 
     return router
 

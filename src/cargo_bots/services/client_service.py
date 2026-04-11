@@ -72,6 +72,22 @@ class ClientService:
             )
             return list(result.all())
 
+    async def search_client_parcels(self, telegram_user_id: int, query: str) -> list[Parcel]:
+        async with self.database.session() as session:
+            client = await session.scalar(
+                select(Client).where(Client.telegram_user_id == telegram_user_id)
+            )
+            if not client:
+                raise ClientNotRegisteredError("Клиент ещё не зарегистрирован.")
+
+            result = await session.scalars(
+                select(Parcel)
+                .where(Parcel.client_id == client.id)
+                .where(Parcel.track_code.ilike(f"%{query}%"))
+                .order_by(Parcel.updated_at.desc(), Parcel.created_at.desc())
+            )
+            return list(result.all())
+
     async def bind_legacy_client(
         self,
         *,

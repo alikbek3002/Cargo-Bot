@@ -19,7 +19,10 @@ def client_guest_keyboard() -> ReplyKeyboardMarkup:
 def client_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Профиль"), KeyboardButton(text="Мои товары")],
+            [KeyboardButton(text="Мои товары")],
+            [KeyboardButton(text="ℹ️ Как искать"), KeyboardButton(text="💰 Оплата")],
+            [KeyboardButton(text="📍 Контакты/Адрес склада"), KeyboardButton(text="❓ Частые вопросы")],
+            [KeyboardButton(text="🕒 График работы"), KeyboardButton(text="Профиль")],
             [KeyboardButton(text="Адрес в Китае"), KeyboardButton(text="Помощь")],
         ],
         resize_keyboard=True,
