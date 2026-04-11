@@ -3,8 +3,14 @@ from __future__ import annotations
 from celery import Celery
 
 from cargo_bots.core.config import get_settings
+from celery.signals import setup_logging
 
 settings = get_settings()
+
+@setup_logging.connect
+def on_setup_logging(**kwargs):
+    from cargo_bots.core.logging import configure_logging
+    configure_logging(settings)
 
 celery_app = Celery(
     "cargo_bots",
