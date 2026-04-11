@@ -1,6 +1,7 @@
 {
   "sheet_name": 0,
   "client_code_aliases": [
+    "client_code",
     "код клиента",
     "код",
     "client code",
@@ -9,6 +10,7 @@
     "label"
   ],
   "track_code_aliases": [
+    "track_code",
     "трек",
     "трек код",
     "номер отслеживания",

@@ -58,13 +58,38 @@ class SupplierWorkbookParser:
 
     def parse_bytes(self, payload: bytes) -> ImportParseResult:
         pandas = self._import_pandas()
-        workbook = pandas.read_excel(
+
+        # Первая попытка: читаем с заголовками
+        dataframe = pandas.read_excel(
             io.BytesIO(payload),
             sheet_name=self.template.sheet_name,
             engine="calamine",
             dtype=str,
-        )
-        dataframe = workbook.fillna("")
+        ).fillna("")
+
+        # Проверяем, есть ли среди колонок хотя бы один известный alias
+        all_aliases = set(self.template.client_code_aliases + self.template.track_code_aliases)
+        col_names_lower = {str(c).strip().lower() for c in dataframe.columns}
+        has_known_headers = bool(col_names_lower & all_aliases)
+
+        if not has_known_headers:
+            # Файл без заголовков — перечитываем с header=None
+            dataframe = pandas.read_excel(
+                io.BytesIO(payload),
+                sheet_name=self.template.sheet_name,
+                engine="calamine",
+                dtype=str,
+                header=None,
+            ).fillna("")
+
+            # Назначаем колонки по позиции:
+            # Колонка 0 = трек-код, Колонка 1 = код клиента
+            if len(dataframe.columns) >= 2:
+                dataframe.columns = ["track_code"] + ["client_code"] + [
+                    f"col_{i}" for i in range(2, len(dataframe.columns))
+                ]
+            elif len(dataframe.columns) == 1:
+                dataframe.columns = ["track_code"]
 
         parsed_rows: list[ParsedImportRow] = []
         failed_rows: list[FailedImportRow] = []
