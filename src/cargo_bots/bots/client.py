@@ -181,11 +181,11 @@ def create_client_router(client_service: ClientService) -> Router:
     @router.message(F.text == "📍 Контакты/Адрес склада")
     async def contacts_handler(message: Message) -> None:
         await message.answer(
-            "📍 **Наши контакты и склад**\n\n"
+            "📍 **Наши контакты и склад (BCL EXPRESS)**\n\n"
             "Свяжитесь с нами для любых вопросов:\n"
-            "📞 Телефон: +996 XXX XXX XXX (подставьте реальный номер)\n"
-            "💬 WhatsApp: wa.me/996XXXXXXXXX\n\n"
-            "Адрес склада выдачи уточняйте у менеджеров."
+            "💬 WhatsApp: [wa.me/996777633674](https://wa.me/996777633674) (+996 777 633 674)\n\n"
+            "🏢 **Адрес склада:** ул. Тыныстанова 189/1",
+            parse_mode="Markdown"
         )
 
     @router.message(F.text == "🕒 График работы")
