@@ -7,10 +7,10 @@ def client_guest_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="Привязать существующий код"),
-                KeyboardButton(text="Регистрация нового клиента"),
+                KeyboardButton(text="🔗 Привязать существующий код"),
+                KeyboardButton(text="🆕 Регистрация нового клиента"),
             ],
-            [KeyboardButton(text="Помощь")],
+            [KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
     )
@@ -19,11 +19,10 @@ def client_guest_keyboard() -> ReplyKeyboardMarkup:
 def client_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Мои товары")],
-            [KeyboardButton(text="ℹ️ Как искать"), KeyboardButton(text="💰 Оплата")],
-            [KeyboardButton(text="📍 Контакты/Адрес склада"), KeyboardButton(text="❓ Частые вопросы")],
-            [KeyboardButton(text="🕒 График работы"), KeyboardButton(text="Профиль")],
-            [KeyboardButton(text="Адрес в Китае"), KeyboardButton(text="Помощь")],
+            [KeyboardButton(text="📦 Мои товары"), KeyboardButton(text="🔍 Поиск по трек-коду")],
+            [KeyboardButton(text="📍 Контакты/Адрес склада"), KeyboardButton(text="🕒 График работы")],
+            [KeyboardButton(text="🏠 Адрес в Китае"), KeyboardButton(text="👤 Профиль")],
+            [KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
     )
@@ -32,10 +31,9 @@ def client_menu_keyboard() -> ReplyKeyboardMarkup:
 def admin_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Загрузить Excel"), KeyboardButton(text="Выдать товары")],
-            [KeyboardButton(text="Последние импорты")],
-            [KeyboardButton(text="Нераспознанные строки"), KeyboardButton(text="Статистика")],
+            [KeyboardButton(text="📤 Загрузить Excel"), KeyboardButton(text="🎁 Выдать товары")],
+            [KeyboardButton(text="📋 Последние импорты"), KeyboardButton(text="📊 Статистика")],
+            [KeyboardButton(text="⚠️ Нераспознанные строки")],
         ],
         resize_keyboard=True,
     )
-

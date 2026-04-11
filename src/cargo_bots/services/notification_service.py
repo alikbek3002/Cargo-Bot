@@ -94,14 +94,37 @@ class NotificationService:
     def _render_message(self, item: NotificationOutbox) -> str:
         status_value = item.payload.get("status", ParcelStatus.IN_TRANSIT.value)
         status_map = {
-            ParcelStatus.EMPTY.value: "Пока ничего нет",
-            ParcelStatus.IN_TRANSIT.value: "В пути",
-            ParcelStatus.READY.value: "Готов к выдаче",
-            ParcelStatus.ISSUED.value: "Успешно выдано",
+            ParcelStatus.EMPTY.value: ("⏳", "Ожидание"),
+            ParcelStatus.IN_TRANSIT.value: ("🚚", "В пути"),
+            ParcelStatus.READY.value: ("✅", "Готов к выдаче"),
+            ParcelStatus.ISSUED.value: ("🎉", "Успешно выдано"),
         }
+        emoji, label = status_map.get(status_value, ("📦", status_value))
+
+        track_code = item.payload.get("track_code", "-")
+        client_code = item.payload.get("client_code", item.client.client_code)
+
+        if status_value == ParcelStatus.READY.value:
+            return (
+                f"✅ Ваш товар готов к выдаче!\n\n"
+                f"📦 Трек-код: {track_code}\n"
+                f"🔑 Код клиента: {client_code}\n\n"
+                f"🏢 Адрес: ул. Тыныстанова 189/1\n"
+                f"🕒 ПН-СБ: 10:00 — 19:00"
+            )
+
+        if status_value == ParcelStatus.ISSUED.value:
+            return (
+                f"🎉 Ваш товар успешно выдан!\n\n"
+                f"📦 Трек-код: {track_code}\n"
+                f"🔑 Код клиента: {client_code}\n\n"
+                f"Спасибо, что пользуетесь BCL EXPRESS! 🙏"
+            )
+
         return (
-            "📦 Обновление по вашему товару\n\n"
-            f"Код клиента: {item.payload.get('client_code', item.client.client_code)}\n"
-            f"Трек-код: {item.payload.get('track_code', '-')}\n"
-            f"Статус: {status_map.get(status_value, status_value)}"
+            f"{emoji} Обновление по вашему товару\n\n"
+            f"📦 Трек-код: {track_code}\n"
+            f"🔑 Код клиента: {client_code}\n"
+            f"📊 Статус: {label}"
         )
+

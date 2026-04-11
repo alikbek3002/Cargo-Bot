@@ -75,10 +75,19 @@ class ClientService:
             return list(result.all())
 
     async def get_ready_parcels_by_client_code(self, client_code: str) -> list[Parcel]:
+        """Ищем клиента по коду и возвращаем его READY-посылки (для выдачи)."""
         from cargo_bots.db.models import ParcelStatus
         normalized_code = normalize_client_code(client_code)
         async with self.database.session() as session:
-            client = await session.scalar(select(Client).where(Client.client_code == normalized_code))
+            # Сначала точное совпадение
+            client = await session.scalar(
+                select(Client).where(Client.client_code == normalized_code)
+            )
+            # Если не нашли — попробуем ilike (частичное)
+            if not client:
+                client = await session.scalar(
+                    select(Client).where(Client.client_code.ilike(f"%{client_code.strip()}%"))
+                )
             if not client:
                 return []
             result = await session.scalars(
@@ -88,9 +97,43 @@ class ClientService:
             )
             return list(result.all())
 
-    async def get_parcel_by_track_code(self, track_code: str) -> Parcel | None:
+    async def get_all_parcels_by_client_code(self, client_code: str) -> tuple[Client | None, list[Parcel]]:
+        """Возвращает клиента и ВСЕ его активные посылки (для отображения в админке)."""
+        from cargo_bots.db.models import ParcelStatus
+        normalized_code = normalize_client_code(client_code)
         async with self.database.session() as session:
-            return await session.scalar(select(Parcel).where(Parcel.track_code == track_code))
+            client = await session.scalar(
+                select(Client).where(Client.client_code == normalized_code)
+            )
+            if not client:
+                client = await session.scalar(
+                    select(Client).where(Client.client_code.ilike(f"%{client_code.strip()}%"))
+                )
+            if not client:
+                return None, []
+            result = await session.scalars(
+                select(Parcel)
+                .where(Parcel.client_id == client.id)
+                .where(Parcel.status != ParcelStatus.ISSUED)
+                .order_by(Parcel.status.asc())
+            )
+            return client, list(result.all())
+
+    async def get_parcel_by_track_code(self, track_code: str) -> Parcel | None:
+        """Ищет посылку по трек-коду (точное совпадение, нормализованное)."""
+        from cargo_bots.services.normalization import normalize_track_code
+        normalized = normalize_track_code(track_code)
+        async with self.database.session() as session:
+            parcel = await session.scalar(
+                select(Parcel).where(Parcel.track_code == normalized)
+            )
+            if parcel:
+                return parcel
+            # fallback: попробовать как есть
+            parcel = await session.scalar(
+                select(Parcel).where(Parcel.track_code == track_code.strip())
+            )
+            return parcel
 
     async def mark_parcels_as_issued(self, parcel_ids: list[object]) -> int:
         from cargo_bots.db.models import ParcelStatus, ParcelEvent, NotificationOutbox
