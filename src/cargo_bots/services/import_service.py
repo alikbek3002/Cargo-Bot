@@ -278,3 +278,73 @@ class ImportService:
     def _storage_key(self, filename: str, checksum: str) -> str:
         safe_name = Path(filename).name.replace(" ", "_")
         return f"{self.storage_prefix}/{checksum[:12]}-{safe_name}"
+
+    async def mark_import_as_ready(self, import_job_id: UUID) -> int:
+        from sqlalchemy.orm import selectinload
+
+        async with self.database.session() as session:
+            job = await session.get(ImportJob, import_job_id)
+            if not job:
+                raise ValueError("Import job not found")
+
+            result = await session.scalars(
+                select(Parcel)
+                .options(selectinload(Parcel.client))
+                .where(Parcel.last_import_job_id == import_job_id)
+                .where(Parcel.status == ParcelStatus.IN_TRANSIT)
+            )
+            parcels = list(result.all())
+            if not parcels:
+                return 0
+
+            # Pre-fetch existing dedupe keys to avoid UniqueConstraint errors
+            dedupe_keys = [f"parcel:{p.track_code}:READY" for p in parcels]
+            existing_notifications = set(
+                (
+                    await session.scalars(
+                        select(NotificationOutbox.dedupe_key).where(
+                            NotificationOutbox.dedupe_key.in_(dedupe_keys)
+                        )
+                    )
+                ).all()
+            )
+
+            updated_count = 0
+            for parcel in parcels:
+                parcel.status = ParcelStatus.READY
+                parcel.last_seen_at = datetime.now(tz=UTC)
+                
+                session.add(
+                    ParcelEvent(
+                        parcel=parcel,
+                        import_job_id=import_job_id,
+                        old_status=ParcelStatus.IN_TRANSIT,
+                        new_status=ParcelStatus.READY,
+                        payload={
+                            "track_code": parcel.track_code,
+                            "client_code": parcel.client.client_code,
+                        },
+                    )
+                )
+
+                if parcel.client.telegram_chat_id:
+                    dedupe_key = f"parcel:{parcel.track_code}:READY"
+                    if dedupe_key not in existing_notifications:
+                        session.add(
+                            NotificationOutbox(
+                                client=parcel.client,
+                                parcel=parcel,
+                                kind="parcel_status_updated",
+                                dedupe_key=dedupe_key,
+                                payload={
+                                    "track_code": parcel.track_code,
+                                    "status": ParcelStatus.READY.value,
+                                    "client_code": parcel.client.client_code,
+                                },
+                            )
+                        )
+                        existing_notifications.add(dedupe_key)
+                updated_count += 1
+
+            await session.commit()
+            return updated_count

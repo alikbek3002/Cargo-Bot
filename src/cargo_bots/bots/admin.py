@@ -28,17 +28,61 @@ def create_admin_router(import_service: ImportService, settings: Settings) -> Ro
         return True
 
     async def show_imports(message: Message) -> None:
-        imports = await import_service.list_recent_imports()
+        imports = await import_service.list_recent_imports(limit=5)
         if not imports:
             await message.answer("Импортов пока нет.", reply_markup=admin_keyboard())
             return
-        lines = ["Последние импорты:"]
+            
+        await message.answer("Последние импорты (до 5 штук):", reply_markup=admin_keyboard())
+        
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        
         for item in imports:
-            lines.append(
-                f"• {item.filename} — {item.status.value} "
-                f"(rows={item.total_rows}, matched={item.matched_rows}, unmatched={item.unmatched_rows})"
+            text = (
+                f"📄 Сундук/Импорт: **{item.filename}**\n"
+                f"Статус: {item.status.value}\n"
+                f"Товаров: {item.matched_rows} из {item.total_rows}\n"
+                f"Дата загрузки: {item.created_at.strftime('%Y-%m-%d %H:%M')}"
             )
-        await message.answer("\n".join(lines), reply_markup=admin_keyboard())
+            
+            # Только если статус НЕ Failed и НЕ Pending, можно отметить готовность
+            markup = None
+            if item.status in (ImportStatus.COMPLETED, ImportStatus.PARTIAL, ImportStatus.PROCESSING):
+                markup = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Отметить 'Готов к выдаче'", callback_data=f"mark_ready:{item.id}")]
+                    ]
+                )
+                
+            await message.answer(text, reply_markup=markup, parse_mode="Markdown")
+
+    @router.callback_query(F.data.startswith("mark_ready:"))
+    async def mark_ready_handler(callback: aiogram.types.CallbackQuery) -> None:
+        if not has_admin_access(callback.from_user.id, settings.admin_ids):
+            await callback.answer("У вас нет доступа.", show_alert=True)
+            return
+
+        import_job_id_str = callback.data.split(":")[1]
+        from uuid import UUID
+        import_job_id = UUID(import_job_id_str)
+        
+        try:
+            updated_count = await import_service.mark_import_as_ready(import_job_id)
+            if updated_count > 0:
+                await callback.answer(f"Успешно: {updated_count} товаров отмечены как готовые!", show_alert=True)
+                # Убираем кнопку после успешного нажатия (опционально)
+                await callback.message.edit_text(
+                    callback.message.text + "\n\n✅ Отправлено на склад (Готово к выдаче)",
+                    reply_markup=None
+                )
+            else:
+                await callback.answer("Нет товаров 'В пути' для этого импорта.", show_alert=True)
+                await callback.message.edit_text(
+                    callback.message.text + "\n\nℹ️ Все товары уже готовы или импорт пуст.",
+                    reply_markup=None
+                )
+        except Exception as e:
+            await callback.answer(f"Ошибка: {e}", show_alert=True)
 
     @router.message(Command("start"))
     async def start_handler(message: Message) -> None:
