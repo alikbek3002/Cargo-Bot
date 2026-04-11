@@ -91,37 +91,26 @@ class ClientService:
                 if already_bound and already_bound.client_code != normalized_code:
                     raise ClientAlreadyBoundError("Этот Telegram уже привязан к другому клиенту.")
 
-                legacy = await session.scalar(
-                    select(LegacyClient).where(LegacyClient.client_code == normalized_code)
-                )
-                if not legacy:
-                    raise ClientValidationError("Код клиента не найден в базе старых клиентов.")
-
-                if normalize_name(legacy.full_name) != normalized_name:
-                    raise ClientValidationError("ФИО не совпадает с реестром старых клиентов.")
-
                 client = await session.scalar(
                     select(Client).where(Client.client_code == normalized_code)
                 )
                 if client and client.telegram_user_id not in (None, telegram_user_id):
-                    raise ClientAlreadyBoundError("Этот код клиента уже привязан к другому Telegram.")
+                    raise ClientAlreadyBoundError("Этот старый код уже привязан к другому пользователю в новом боте.")
 
                 if not client:
                     client = Client(
-                        client_code=legacy.client_code,
-                        full_name=legacy.full_name,
+                        client_code=normalized_code,
+                        full_name=full_name,
                         telegram_user_id=telegram_user_id,
                         telegram_chat_id=telegram_chat_id,
-                        is_legacy_bound=True,
-                        legacy_client=legacy,
+                        is_legacy_bound=False,
                     )
                     session.add(client)
                 else:
-                    client.full_name = legacy.full_name
+                    client.full_name = full_name
                     client.telegram_user_id = telegram_user_id
                     client.telegram_chat_id = telegram_chat_id
-                    client.is_legacy_bound = True
-                    client.legacy_client = legacy
+                    client.is_legacy_bound = False
 
                 await session.flush()
                 return client

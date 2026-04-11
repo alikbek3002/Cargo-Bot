@@ -16,6 +16,7 @@ celery_app = Celery(
     "cargo_bots",
     broker=settings.redis_url,
     backend=settings.redis_url,
+    include=["cargo_bots.tasks.jobs"],
 )
 celery_app.conf.update(
     task_always_eager=settings.task_always_eager,
