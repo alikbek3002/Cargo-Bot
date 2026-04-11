@@ -27,7 +27,6 @@ class AdminIssueStates(StatesGroup):
     waiting_for_query = State()
 
 
-# Маппинг статусов для админки
 STATUS_DISPLAY = {
     ParcelStatus.EMPTY: ("⏳", "Ожидание"),
     ParcelStatus.IN_TRANSIT: ("🚚", "В пути"),
@@ -43,9 +42,6 @@ def create_admin_router(
 ) -> Router:
     router = Router(name="admin-bot")
 
-    # ──────────────────────────────────────
-    #  Утилиты
-    # ──────────────────────────────────────
     def is_admin(message: Message) -> bool:
         return has_admin_access(
             message.from_user.id if message.from_user else None,
@@ -58,56 +54,51 @@ def create_admin_router(
         await message.answer("🚫 У вас нет доступа к админ-боту.")
         return True
 
-    # ──────────────────────────────────────
-    #  /start
-    # ──────────────────────────────────────
+    # ──────── /start ────────
     @router.message(Command("start"))
     async def start_handler(message: Message, state: FSMContext) -> None:
         if await deny_if_needed(message):
             return
         await state.clear()
         await message.answer(
-            "🤖 **Админ-бот BCL EXPRESS готов!**\n\n"
+            "🤖 Админ-бот BCL EXPRESS готов!\n\n"
             "📤 Загрузить Excel — отправьте файл\n"
             "🎁 Выдать товары — выдача клиенту\n"
-            "📋 Последние импорты — просмотр и смена статуса\n"
-            "📊 Статистика — общая сводка\n\n"
-            "Также доступны команды: /imports, /stats, /issue",
+            "📋 Последние импорты — просмотр\n"
+            "📊 Статистика — сводка",
             reply_markup=admin_keyboard(),
-            parse_mode="Markdown",
         )
 
-    # ──────────────────────────────────────
-    #  Загрузить Excel
-    # ──────────────────────────────────────
+    # ──────── Загрузить Excel ────────
     @router.message(Command("upload"))
     @router.message(F.text == "📤 Загрузить Excel")
     async def upload_help_handler(message: Message, state: FSMContext) -> None:
         if await deny_if_needed(message):
             return
         await state.clear()
-        await message.answer("📎 Просто отправьте сюда файл формата .xls или .xlsx.")
+        await message.answer("📎 Просто отправьте сюда файл .xls или .xlsx.")
 
-    # ──────────────────────────────────────
-    #  Последние импорты + кнопка «Готов к выдаче»
-    # ──────────────────────────────────────
+    # ──────── Последние импорты ────────
     async def show_imports(message: Message) -> None:
         imports = await import_service.list_recent_imports(limit=5)
         if not imports:
             await message.answer("📭 Импортов пока нет.", reply_markup=admin_keyboard())
             return
 
-        await message.answer("📋 **Последние импорты (до 5):**", reply_markup=admin_keyboard(), parse_mode="Markdown")
+        await message.answer("📋 Последние импорты:", reply_markup=admin_keyboard())
 
         for item in imports:
-            status_emoji = {"COMPLETED": "✅", "PARTIAL": "⚠️", "FAILED": "❌", "PENDING": "⏳", "PROCESSING": "⏳"}
-            emoji = status_emoji.get(item.status.value, "❔")
+            se = {"COMPLETED": "✅", "PARTIAL": "⚠️", "FAILED": "❌", "PENDING": "⏳", "PROCESSING": "⏳"}
+            emoji = se.get(item.status.value, "❔")
+
+            # Укорачиваем UUID до 8 символов для callback_data (Telegram лимит 64 байта)
+            short_id = str(item.id)[:8]
 
             text = (
-                f"📄 **{item.filename}**\n"
+                f"📄 {item.filename}\n"
                 f"{emoji} Статус: {item.status.value}\n"
                 f"📦 Товаров: {item.matched_rows} из {item.total_rows}\n"
-                f"📅 Загружен: {item.created_at.strftime('%Y-%m-%d %H:%M')}"
+                f"📅 {item.created_at.strftime('%Y-%m-%d %H:%M')}"
             )
 
             markup = None
@@ -115,13 +106,13 @@ def create_admin_router(
                 markup = InlineKeyboardMarkup(
                     inline_keyboard=[
                         [InlineKeyboardButton(
-                            text="✅ Отметить «Готов к выдаче»",
-                            callback_data=f"mark_ready:{item.id}",
+                            text="✅ Готов к выдаче",
+                            callback_data=f"rdy:{short_id}",
                         )]
                     ]
                 )
 
-            await message.answer(text, reply_markup=markup, parse_mode="Markdown")
+            await message.answer(text, reply_markup=markup)
 
     @router.message(Command("imports"))
     @router.message(F.text == "📋 Последние импорты")
@@ -131,42 +122,44 @@ def create_admin_router(
         await state.clear()
         await show_imports(message)
 
-    @router.callback_query(F.data.startswith("mark_ready:"))
+    @router.callback_query(F.data.startswith("rdy:"))
     async def mark_ready_handler(callback: CallbackQuery) -> None:
         if not has_admin_access(callback.from_user.id, settings.admin_ids):
-            await callback.answer("🚫 У вас нет доступа.", show_alert=True)
+            await callback.answer("🚫 Нет доступа.", show_alert=True)
             return
 
-        import_job_id = UUID(callback.data.split(":")[1])
+        short_id = callback.data.split(":")[1]
+
+        # Найдем полный UUID по началу
+        imports = await import_service.list_recent_imports(limit=20)
+        import_job = None
+        for imp in imports:
+            if str(imp.id).startswith(short_id):
+                import_job = imp
+                break
+
+        if not import_job:
+            await callback.answer("❌ Импорт не найден.", show_alert=True)
+            return
 
         try:
-            updated_count = await import_service.mark_import_as_ready(import_job_id)
-            if updated_count > 0:
-                await callback.answer(
-                    f"✅ {updated_count} товаров → Готов к выдаче!\nУведомления отправлены клиентам.",
-                    show_alert=True,
-                )
+            count = await import_service.mark_import_as_ready(import_job.id)
+            if count > 0:
+                await callback.answer(f"✅ {count} товаров → Готов к выдаче!", show_alert=True)
                 await callback.message.edit_text(
-                    callback.message.text + f"\n\n✅ Отмечено: {updated_count} товаров готовы к выдаче",
+                    callback.message.text + f"\n\n✅ {count} товаров готовы к выдаче",
                     reply_markup=None,
-                    parse_mode="Markdown",
                 )
             else:
-                await callback.answer(
-                    "ℹ️ Нет товаров со статусом «В пути» для этого импорта.",
-                    show_alert=True,
-                )
+                await callback.answer("ℹ️ Нет товаров «В пути».", show_alert=True)
                 await callback.message.edit_text(
-                    callback.message.text + "\n\nℹ️ Все товары уже готовы или выданы",
+                    callback.message.text + "\n\nℹ️ Все товары уже готовы",
                     reply_markup=None,
-                    parse_mode="Markdown",
                 )
         except Exception as e:
-            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            await callback.answer(f"❌ {e}", show_alert=True)
 
-    # ──────────────────────────────────────
-    #  Выдать товары (FSM)
-    # ──────────────────────────────────────
+    # ──────── Выдать товары (FSM) ────────
     @router.message(Command("issue"))
     @router.message(F.text == "🎁 Выдать товары")
     async def issue_start_handler(message: Message, state: FSMContext) -> None:
@@ -174,13 +167,10 @@ def create_admin_router(
             return
         await state.set_state(AdminIssueStates.waiting_for_query)
         await message.answer(
-            "🔍 **Выдача товаров**\n\n"
-            "Введите:\n"
-            "• Код клиента (например: J-0001)\n"
-            "• Или трек-код товара\n\n"
-            "Для отмены нажмите /start",
+            "🔍 Выдача товаров\n\n"
+            "Введите код клиента (J-0001) или трек-код товара.\n"
+            "Для отмены: /start",
             reply_markup=admin_keyboard(),
-            parse_mode="Markdown",
         )
 
     @router.message(AdminIssueStates.waiting_for_query)
@@ -193,152 +183,140 @@ def create_admin_router(
             await message.answer("⚠️ Введите код клиента или трек-код.")
             return
 
-        # ─── Попробуем найти как код клиента ───
+        # ─── Поиск по коду клиента ───
         client, all_parcels = await client_service.get_all_parcels_by_client_code(query)
 
         if client:
-            ready_parcels = [p for p in all_parcels if p.status == ParcelStatus.READY]
-            in_transit = [p for p in all_parcels if p.status == ParcelStatus.IN_TRANSIT]
+            ready = [p for p in all_parcels if p.status == ParcelStatus.READY]
+            transit = [p for p in all_parcels if p.status == ParcelStatus.IN_TRANSIT]
 
-            lines = [f"👤 **Клиент: {client.full_name} ({client.client_code})**", ""]
+            lines = [f"👤 {client.full_name} ({client.client_code})", ""]
 
-            if ready_parcels:
-                lines.append(f"✅ **Готовы к выдаче ({len(ready_parcels)}):**")
-                for p in ready_parcels:
+            if ready:
+                lines.append(f"✅ Готовы к выдаче ({len(ready)}):")
+                for p in ready:
                     lines.append(f"  • {p.track_code}")
                 lines.append("")
 
-            if in_transit:
-                lines.append(f"🚚 **В пути ({len(in_transit)}):**")
-                for p in in_transit:
+            if transit:
+                lines.append(f"🚚 В пути ({len(transit)}):")
+                for p in transit:
                     lines.append(f"  • {p.track_code}")
                 lines.append("")
 
             if not all_parcels:
-                lines.append("📭 Нет активных товаров у этого клиента.")
+                lines.append("📭 Нет активных товаров.")
 
             markup = None
-            if ready_parcels:
-                parcel_ids = [str(p.id) for p in ready_parcels]
+            if ready:
+                # Сохраняем ID в FSM state, а не в callback_data!
+                await state.update_data(
+                    issue_parcel_ids=[str(p.id) for p in ready],
+                )
                 markup = InlineKeyboardMarkup(
                     inline_keyboard=[
                         [InlineKeyboardButton(
-                            text=f"🎁 Выдать все готовые ({len(ready_parcels)} шт.)",
-                            callback_data=f"issue_all:{','.join(parcel_ids)}",
+                            text=f"🎁 Выдать все ({len(ready)} шт.)",
+                            callback_data="issue_ok",
                         )],
-                        [InlineKeyboardButton(
-                            text="❌ Отмена",
-                            callback_data="issue_cancel",
-                        )],
+                        [InlineKeyboardButton(text="❌ Отмена", callback_data="issue_no")],
                     ]
                 )
-            
-            await message.answer("\n".join(lines), reply_markup=markup, parse_mode="Markdown")
-            await state.clear()
+
+            await state.set_state(None)  # Выходим из FSM но данные сохраняются
+            await message.answer("\n".join(lines), reply_markup=markup)
             return
 
-        # ─── Попробуем найти как трек-код ───
+        # ─── Поиск по трек-коду ───
         parcel = await client_service.get_parcel_by_track_code(query)
         if parcel:
             emoji, label = STATUS_DISPLAY.get(parcel.status, ("❔", parcel.status.value))
 
             if parcel.status == ParcelStatus.READY:
+                await state.update_data(issue_parcel_ids=[str(parcel.id)])
+                await state.set_state(None)
                 markup = InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text="🎁 Выдать этот товар",
-                            callback_data=f"issue_all:{parcel.id}",
-                        )],
-                        [InlineKeyboardButton(
-                            text="❌ Отмена",
-                            callback_data="issue_cancel",
-                        )],
+                        [InlineKeyboardButton(text="🎁 Выдать", callback_data="issue_ok")],
+                        [InlineKeyboardButton(text="❌ Отмена", callback_data="issue_no")],
                     ]
                 )
                 await message.answer(
-                    f"📦 **Найден товар:**\n\n"
-                    f"• Трек-код: {parcel.track_code}\n"
-                    f"• Статус: {emoji} {label}",
+                    f"📦 {parcel.track_code}\n{emoji} {label}",
                     reply_markup=markup,
-                    parse_mode="Markdown",
                 )
             elif parcel.status == ParcelStatus.ISSUED:
+                await state.clear()
                 await message.answer(
-                    f"🎉 Товар **{parcel.track_code}** уже был выдан.",
+                    f"🎉 {parcel.track_code} — уже выдан.",
                     reply_markup=admin_keyboard(),
-                    parse_mode="Markdown",
                 )
             elif parcel.status == ParcelStatus.IN_TRANSIT:
+                await state.clear()
                 await message.answer(
-                    f"🚚 Товар **{parcel.track_code}** ещё в пути.\n"
-                    "Сначала отметьте импорт как «Готов к выдаче» через 📋 Последние импорты.",
+                    f"🚚 {parcel.track_code} — ещё в пути.\n"
+                    "Сначала отметьте через 📋 Последние импорты.",
                     reply_markup=admin_keyboard(),
-                    parse_mode="Markdown",
                 )
             else:
+                await state.clear()
                 await message.answer(
-                    f"📦 Товар **{parcel.track_code}** — {emoji} {label}",
+                    f"📦 {parcel.track_code} — {emoji} {label}",
                     reply_markup=admin_keyboard(),
-                    parse_mode="Markdown",
                 )
-            await state.clear()
             return
 
         # ─── Ничего не найдено ───
         await message.answer(
-            f"❌ По запросу «{query}» ничего не найдено.\n\n"
-            "💡 Подсказки:\n"
-            "• Код клиента: J-0001\n"
-            "• Трек-код: ISL12345678\n\n"
-            "Попробуйте ещё раз или нажмите /start для отмены.",
+            f"❌ «{query}» — не найдено.\n\n"
+            "Код клиента: J-0001\n"
+            "Трек-код: ISL12345678\n\n"
+            "Попробуйте ещё раз или /start",
         )
 
-    @router.callback_query(F.data.startswith("issue_all:"))
-    async def issue_confirm_handler(callback: CallbackQuery) -> None:
+    @router.callback_query(F.data == "issue_ok")
+    async def issue_confirm_handler(callback: CallbackQuery, state: FSMContext) -> None:
         if not has_admin_access(callback.from_user.id, settings.admin_ids):
-            await callback.answer("🚫 У вас нет доступа.", show_alert=True)
+            await callback.answer("🚫 Нет доступа.", show_alert=True)
             return
 
-        ids_str = callback.data.split(":", 1)[1]
-        parcel_ids = [UUID(pid) for pid in ids_str.split(",")]
+        data = await state.get_data()
+        parcel_id_strs = data.get("issue_parcel_ids", [])
+
+        if not parcel_id_strs:
+            await callback.answer("⚠️ Нет товаров для выдачи.", show_alert=True)
+            return
+
+        parcel_ids = [UUID(pid) for pid in parcel_id_strs]
 
         try:
-            updated_count = await client_service.mark_parcels_as_issued(parcel_ids)
-            if updated_count > 0:
-                await callback.answer(
-                    f"🎉 Выдано {updated_count} товаров!\nКлиенту отправлено уведомление.",
-                    show_alert=True,
-                )
+            count = await client_service.mark_parcels_as_issued(parcel_ids)
+            await state.clear()
+            if count > 0:
+                await callback.answer(f"🎉 Выдано {count} товаров!", show_alert=True)
                 await callback.message.edit_text(
-                    callback.message.text + f"\n\n🎉 **Выдано: {updated_count} шт.**",
+                    callback.message.text + f"\n\n🎉 Выдано: {count} шт.",
                     reply_markup=None,
-                    parse_mode="Markdown",
                 )
             else:
-                await callback.answer(
-                    "ℹ️ Товары уже были выданы или статус изменился.",
-                    show_alert=True,
-                )
+                await callback.answer("ℹ️ Товары уже были выданы.", show_alert=True)
                 await callback.message.edit_text(
-                    callback.message.text + "\n\nℹ️ Товары уже были выданы.",
+                    callback.message.text + "\n\nℹ️ Уже выданы.",
                     reply_markup=None,
-                    parse_mode="Markdown",
                 )
         except Exception as e:
-            await callback.answer(f"❌ Ошибка: {e}", show_alert=True)
+            await callback.answer(f"❌ {e}", show_alert=True)
 
-    @router.callback_query(F.data == "issue_cancel")
-    async def issue_cancel_handler(callback: CallbackQuery) -> None:
+    @router.callback_query(F.data == "issue_no")
+    async def issue_cancel_handler(callback: CallbackQuery, state: FSMContext) -> None:
+        await state.clear()
         await callback.answer("Отменено.")
         await callback.message.edit_text(
             callback.message.text + "\n\n❌ Отменено.",
             reply_markup=None,
-            parse_mode="Markdown",
         )
 
-    # ──────────────────────────────────────
-    #  Нераспознанные строки
-    # ──────────────────────────────────────
+    # ──────── Нераспознанные строки ────────
     @router.message(Command("unmatched"))
     @router.message(F.text == "⚠️ Нераспознанные строки")
     async def unmatched_handler(message: Message, state: FSMContext) -> None:
@@ -346,19 +324,17 @@ def create_admin_router(
             return
         await state.clear()
 
-        unmatched_rows = await import_service.list_recent_unmatched_rows()
-        if not unmatched_rows:
+        rows = await import_service.list_recent_unmatched_rows()
+        if not rows:
             await message.answer("✅ Нераспознанных строк нет!", reply_markup=admin_keyboard())
             return
 
-        lines = ["⚠️ **Последние нераспознанные строки:**", ""]
-        for row in unmatched_rows:
+        lines = ["⚠️ Нераспознанные строки:", ""]
+        for row in rows:
             lines.append(f"• Строка {row.row_number}: {row.reason}")
-        await message.answer("\n".join(lines), reply_markup=admin_keyboard(), parse_mode="Markdown")
+        await message.answer("\n".join(lines), reply_markup=admin_keyboard())
 
-    # ──────────────────────────────────────
-    #  Статистика
-    # ──────────────────────────────────────
+    # ──────── Статистика ────────
     @router.message(Command("stats"))
     @router.message(F.text == "📊 Статистика")
     async def stats_handler(message: Message, state: FSMContext) -> None:
@@ -368,18 +344,15 @@ def create_admin_router(
 
         stats = await import_service.get_admin_stats()
         await message.answer(
-            "📊 **Статистика BCL EXPRESS:**\n\n"
+            "📊 Статистика BCL EXPRESS:\n\n"
             f"👥 Клиентов: {stats.clients}\n"
             f"📦 Посылок: {stats.parcels}\n"
             f"📄 Импортов: {stats.imports}\n"
-            f"⚠️ Нераспознанных строк: {stats.unmatched_rows}",
+            f"⚠️ Нераспознанных: {stats.unmatched_rows}",
             reply_markup=admin_keyboard(),
-            parse_mode="Markdown",
         )
 
-    # ──────────────────────────────────────
-    #  Приём Excel-файла
-    # ──────────────────────────────────────
+    # ──────── Приём Excel ────────
     @router.message(F.document)
     async def document_handler(message: Message, state: FSMContext) -> None:
         if await deny_if_needed(message):
@@ -388,7 +361,7 @@ def create_admin_router(
 
         document = message.document
         if not document.file_name or not document.file_name.lower().endswith((".xls", ".xlsx")):
-            await message.answer("⚠️ Поддерживаются только файлы .xls и .xlsx.")
+            await message.answer("⚠️ Только .xls и .xlsx файлы.")
             return
 
         file = await message.bot.get_file(document.file_id)
@@ -404,13 +377,11 @@ def create_admin_router(
         enqueue_import_processing(import_job.id)
 
         await message.answer(
-            "📤 **Файл принят в обработку!**\n\n"
-            f"📄 Файл: {document.file_name}\n"
-            f"🆔 ID импорта: `{import_job.id}`\n"
+            "📤 Файл принят!\n\n"
+            f"📄 {document.file_name}\n"
             "⏳ Статус: PENDING\n\n"
-            "Файл обрабатывается. Используйте 📋 Последние импорты для проверки.",
+            "Проверяйте через 📋 Последние импорты.",
             reply_markup=admin_keyboard(),
-            parse_mode="Markdown",
         )
 
     return router
