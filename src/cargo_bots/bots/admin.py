@@ -27,6 +27,10 @@ class AdminIssueStates(StatesGroup):
     waiting_for_query = State()
 
 
+class AdminUploadStates(StatesGroup):
+    waiting_for_days = State()
+
+
 STATUS_DISPLAY = {
     ParcelStatus.EMPTY: ("⏳", "Ожидание"),
     ParcelStatus.IN_TRANSIT: ("🚚", "В пути"),
@@ -376,14 +380,81 @@ def create_admin_router(
             filename=document.file_name,
             payload=payload,
         )
-        enqueue_import_processing(import_job.id)
+
+        await state.update_data(upload_job_id=str(import_job.id))
+        await state.set_state(AdminUploadStates.waiting_for_days)
+
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="5 дней", callback_data="days:5"),
+                    InlineKeyboardButton(text="10 дней", callback_data="days:10"),
+                ],
+                [
+                    InlineKeyboardButton(text="12 дней", callback_data="days:12"),
+                    InlineKeyboardButton(text="15 дней", callback_data="days:15"),
+                ],
+                [
+                    InlineKeyboardButton(text="20 дней", callback_data="days:20"),
+                    InlineKeyboardButton(text="30 дней", callback_data="days:30"),
+                ]
+            ]
+        )
 
         await message.answer(
-            "📤 Файл принят!\n\n"
-            f"📄 {document.file_name}\n"
-            "⏳ Статус: PENDING\n\n"
-            "Проверяйте через 📋 Последние импорты.",
-            reply_markup=admin_keyboard(),
+            f"📄 Файл: {document.file_name}\n\n"
+            "🗓 За сколько дней приедет этот груз?\n"
+            "Выберите вариант ниже или просто отправьте число сообщением:",
+            reply_markup=markup,
         )
+
+    async def _process_upload_days(message_or_call, state: FSMContext, bot, days: int) -> None:
+        data = await state.get_data()
+        job_id_str = data.get("upload_job_id")
+        if not job_id_str:
+            await state.clear()
+            return
+
+        job_id = UUID(job_id_str)
+        # Update delivery_days via import_service or session directly
+        from cargo_bots.db.models import ImportJob
+        async with import_service.database.session() as session:
+            job = await session.get(ImportJob, job_id)
+            if job:
+                job.delivery_days = days
+                await session.commit()
+
+        enqueue_import_processing(job_id)
+        await state.clear()
+
+        text = (
+            "📤 Файл принят и отправлен в обработку!\n\n"
+            f"⏳ Срок доставки: ~{days} дней\n"
+            "Проверяйте статус через 📋 Последние импорты."
+        )
+
+        if isinstance(message_or_call, Message):
+            await message_or_call.answer(text, reply_markup=admin_keyboard())
+        else:
+            await message_or_call.message.edit_text(text, reply_markup=None)
+            await message_or_call.answer("Готово!")
+            await bot.send_message(message_or_call.from_user.id, "✅ Задача добавлена в очередь.", reply_markup=admin_keyboard())
+
+    @router.callback_query(AdminUploadStates.waiting_for_days, F.data.startswith("days:"))
+    async def upload_days_callback(callback: CallbackQuery, state: FSMContext) -> None:
+        days = int(callback.data.split(":")[1])
+        await _process_upload_days(callback, state, callback.bot, days)
+
+    @router.message(AdminUploadStates.waiting_for_days, F.text)
+    async def upload_days_text(message: Message, state: FSMContext) -> None:
+        try:
+            days = int(message.text.strip())
+            if days <= 0 or days > 100:
+                raise ValueError
+        except ValueError:
+            await message.answer("⚠️ Пожалуйста, введите число от 1 до 100.")
+            return
+
+        await _process_upload_days(message, state, message.bot, days)
 
     return router

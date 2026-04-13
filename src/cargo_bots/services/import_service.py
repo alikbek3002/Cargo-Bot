@@ -190,12 +190,15 @@ class ImportService:
             is_new = parcel is None
 
             if parcel is None:
+                row_raw_row = dict(row.raw_row)
+                row_raw_row["_delivery_days"] = job.delivery_days
+
                 parcel = Parcel(
                     track_code=row.track_code,
                     client=client,
                     last_import_job=job,
                     status=ParcelStatus.IN_TRANSIT,
-                    raw_row=row.raw_row,
+                    raw_row=row_raw_row,
                     last_seen_at=datetime.now(tz=UTC),
                 )
                 session.add(parcel)
@@ -205,14 +208,17 @@ class ImportService:
                 is_safe_to_modify = parcel.status not in (ParcelStatus.READY, ParcelStatus.ISSUED)
                 
                 if is_safe_to_modify:
+                    row_raw_row = dict(row.raw_row)
+                    row_raw_row["_delivery_days"] = job.delivery_days
+
                     changed = (
                         parcel.client_id != client.id
                         or parcel.status != ParcelStatus.IN_TRANSIT
-                        or parcel.raw_row != row.raw_row
+                        or parcel.raw_row != row_raw_row
                     )
                     parcel.client = client
                     parcel.last_import_job = job
-                    parcel.raw_row = row.raw_row
+                    parcel.raw_row = row_raw_row
                     parcel.last_seen_at = datetime.now(tz=UTC)
                     if parcel.status != ParcelStatus.IN_TRANSIT:
                         parcel.status = ParcelStatus.IN_TRANSIT

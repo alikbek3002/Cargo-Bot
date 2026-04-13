@@ -85,6 +85,7 @@ class ImportJob(TimestampMixin, Base):
     updated_parcels: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_days: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
 
     parcels: Mapped[list["Parcel"]] = relationship(back_populates="last_import_job")
     unmatched_rows_rel: Mapped[list["UnmatchedImportRow"]] = relationship(back_populates="import_job")

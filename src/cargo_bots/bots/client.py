@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from cargo_bots.bots.keyboards import client_guest_keyboard, client_menu_keyboard
-from cargo_bots.db.models import ParcelStatus
+from cargo_bots.db.models import Parcel, ParcelStatus
 from cargo_bots.services.client_service import (
     ClientAlreadyBoundError,
     ClientNotRegisteredError,
@@ -41,19 +41,22 @@ STATUS_DISPLAY = {
     ParcelStatus.ISSUED: ("🎉", "Выдано"),
 }
 
-DELIVERY_DAYS = 12  # стандартный срок доставки в днях
-
-
-def _format_status(status: ParcelStatus) -> str:
-    emoji, label = STATUS_DISPLAY.get(status, ("❔", status.value))
-    return f"{emoji} {label}"
-
-
-def _delivery_countdown(parcel_created_at: datetime) -> str:
-    """Вычисляет обратный отсчёт доставки (12 дней от даты создания)."""
+def _delivery_countdown(parcel: Parcel) -> str:
+    """Вычисляет обратный отсчёт доставки (от даты импорта, на основе delivery_days)."""
+    # Если дата последнего обновления статуса (import) известна - берем её
+    # Но для новых посылок created_at и last_seen_at почти совпадают.
+    # Если parcel был создан 10 дней назад, то отсчет идет от created_at.
+    start_date = parcel.created_at
+    if parcel.last_import_job and parcel.last_import_job.created_at:
+        start_date = parcel.last_import_job.created_at
+        
     now = datetime.now(tz=UTC)
-    elapsed = (now - parcel_created_at).days
-    remaining = max(DELIVERY_DAYS - elapsed, 0)
+    elapsed = (now - start_date).days
+    
+    # Берем delivery_days из raw_row (или 12 по умолчанию)
+    delivery_days = int(parcel.raw_row.get("_delivery_days", 12)) if isinstance(parcel.raw_row, dict) else 12
+    
+    remaining = max(delivery_days - elapsed, 0)
 
     if remaining == 0:
         return "📍 Ожидается со дня на день"
@@ -258,7 +261,7 @@ def create_client_router(client_service: ClientService) -> Router:
         if transit_parcels:
             lines.append("🚚 **В пути:**")
             for p in transit_parcels:
-                countdown = _delivery_countdown(p.created_at)
+                countdown = _delivery_countdown(p)
                 lines.append(f"  • {p.track_code}  —  {countdown}")
             lines.append("")
 
@@ -364,7 +367,7 @@ def create_client_router(client_service: ClientService) -> Router:
         for p in parcels:
             emoji, label = STATUS_DISPLAY.get(p.status, ("❔", p.status.value))
             if p.status == ParcelStatus.IN_TRANSIT:
-                countdown = _delivery_countdown(p.created_at)
+                countdown = _delivery_countdown(p)
                 lines.append(f"{emoji} **{p.track_code}** — {label}\n   └ {countdown}")
             else:
                 lines.append(f"{emoji} **{p.track_code}** — {label}")

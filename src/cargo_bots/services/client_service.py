@@ -365,6 +365,12 @@ class ClientService:
         for row in unmatched_rows:
             raw_row: dict = row.raw_row or {}
 
+            # Получаем реальные delivery_days из ImportJob
+            job_delivery_days = 12
+            job = await session.get(ImportJob, row.import_job_id)
+            if job:
+                job_delivery_days = job.delivery_days
+
             # Извлекаем трек-код из raw_row
             track_code = self._extract_track_from_raw_row(raw_row)
             if not track_code:
@@ -379,6 +385,9 @@ class ClientService:
                 rows_to_delete.append(row)
                 resolved_count += 1
                 continue
+
+            # Добавляем delivery_days в raw_row
+            raw_row["_delivery_days"] = job_delivery_days
 
             # Создаём посылку
             parcel = Parcel(

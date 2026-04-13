@@ -42,6 +42,10 @@ class Database:
                     await connection.execute(text("ALTER TYPE parcelstatus ADD VALUE IF NOT EXISTS 'ISSUED'"))
                 except Exception:
                     pass
+                try:
+                    await connection.execute(text("ALTER TABLE imports ADD COLUMN IF NOT EXISTS delivery_days INTEGER DEFAULT 12 NOT NULL"))
+                except Exception:
+                    pass
             await connection.run_sync(Base.metadata.create_all)
 
     async def dispose(self) -> None:
