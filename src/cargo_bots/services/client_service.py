@@ -1,13 +1,32 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import Integer, cast, delete, func, select
 
-from cargo_bots.db.models import Client, LegacyClient, Parcel, SystemCounter
+from cargo_bots.db.models import (
+    Client,
+    ImportJob,
+    LegacyClient,
+    NotificationOutbox,
+    NotificationStatus,
+    Parcel,
+    ParcelEvent,
+    ParcelStatus,
+    SystemCounter,
+    UnmatchedImportRow,
+)
 from cargo_bots.db.session import Database
 from cargo_bots.services.address_book import AddressTemplateService
-from cargo_bots.services.normalization import normalize_client_code, normalize_name
+from cargo_bots.services.normalization import (
+    extract_track_code_candidates,
+    normalize_client_code,
+    normalize_name,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ClientServiceError(Exception):
@@ -263,6 +282,16 @@ class ClientService:
                     client.is_legacy_bound = False
 
                 await session.flush()
+
+                # Авто-матчинг: создаём посылки из ранее неудачных импортов
+                resolved = await self._resolve_unmatched_rows(session, client)
+                if resolved:
+                    logger.info(
+                        "Auto-resolved %d unmatched rows for client %s",
+                        resolved,
+                        client.client_code,
+                    )
+
                 return client
 
     async def register_new_client(
@@ -311,6 +340,125 @@ class ClientService:
         if not client:
             raise ClientNotRegisteredError("Сначала нужно пройти регистрацию.")
         return self.address_service.render(client.client_code)
+
+    async def _resolve_unmatched_rows(self, session, client: Client) -> int:
+        """Ищет UnmatchedImportRow для данного клиента и создаёт посылки.
+
+        Вызывается при привязке / регистрации клиента, чтобы ранее
+        загруженные (но не смэтченные) строки автоматически превратились
+        в посылки.
+        """
+        # Ищем строки, где reason = "Client <code> is not registered"
+        search_pattern = f"Client {client.client_code} is not registered"
+        result = await session.scalars(
+            select(UnmatchedImportRow).where(
+                UnmatchedImportRow.reason == search_pattern
+            )
+        )
+        unmatched_rows = list(result.all())
+        if not unmatched_rows:
+            return 0
+
+        resolved_count = 0
+        rows_to_delete: list[UnmatchedImportRow] = []
+
+        for row in unmatched_rows:
+            raw_row: dict = row.raw_row or {}
+
+            # Извлекаем трек-код из raw_row
+            track_code = self._extract_track_from_raw_row(raw_row)
+            if not track_code:
+                continue
+
+            # Проверяем, нет ли уже такой посылки
+            existing_parcel = await session.scalar(
+                select(Parcel).where(Parcel.track_code == track_code)
+            )
+            if existing_parcel:
+                # Посылка уже есть (возможно, повторный импорт) — просто удалим строку
+                rows_to_delete.append(row)
+                resolved_count += 1
+                continue
+
+            # Создаём посылку
+            parcel = Parcel(
+                track_code=track_code,
+                client=client,
+                last_import_job_id=row.import_job_id,
+                status=ParcelStatus.IN_TRANSIT,
+                raw_row=raw_row,
+                last_seen_at=datetime.now(tz=UTC),
+            )
+            session.add(parcel)
+            await session.flush()  # получаем parcel.id
+
+            # Создаём событие
+            session.add(
+                ParcelEvent(
+                    parcel=parcel,
+                    import_job_id=row.import_job_id,
+                    old_status=None,
+                    new_status=ParcelStatus.IN_TRANSIT,
+                    payload={
+                        "track_code": track_code,
+                        "client_code": client.client_code,
+                        "raw_row": raw_row,
+                        "auto_resolved": True,
+                    },
+                )
+            )
+
+            # Создаём уведомление, если есть chat_id
+            if client.telegram_chat_id:
+                dedupe_key = f"parcel:{track_code}:IN_TRANSIT"
+                existing_notif = await session.scalar(
+                    select(NotificationOutbox.id).where(
+                        NotificationOutbox.dedupe_key == dedupe_key
+                    )
+                )
+                if not existing_notif:
+                    session.add(
+                        NotificationOutbox(
+                            client=client,
+                            parcel=parcel,
+                            kind="parcel_status_updated",
+                            dedupe_key=dedupe_key,
+                            payload={
+                                "track_code": track_code,
+                                "status": ParcelStatus.IN_TRANSIT.value,
+                                "client_code": client.client_code,
+                            },
+                            status=NotificationStatus.PENDING,
+                        )
+                    )
+
+            rows_to_delete.append(row)
+            resolved_count += 1
+
+        # Удаляем обработанные unmatched строки
+        for row in rows_to_delete:
+            await session.delete(row)
+
+        return resolved_count
+
+    @staticmethod
+    def _extract_track_from_raw_row(raw_row: dict) -> str | None:
+        """Извлекает трек-код из raw_row, пробуя разные стратегии."""
+        # Стратегия 1: ищем по стандартным ключам
+        for key in ("track_code", "трек-код", "трек код", "трек", "track", "tracking"):
+            value = raw_row.get(key, "").strip()
+            if value:
+                candidates = extract_track_code_candidates(value)
+                if candidates:
+                    return candidates[0]
+
+        # Стратегия 2: сканируем все значения
+        all_text = " ".join(str(v) for v in raw_row.values() if v)
+        candidates = extract_track_code_candidates(all_text)
+        if candidates:
+            return candidates[0]
+
+        return None
 
     async def _detect_max_numeric_code(self, session) -> int:
         extract_digits = lambda column: cast(
