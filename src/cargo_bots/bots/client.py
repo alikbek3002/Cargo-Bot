@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -39,10 +41,32 @@ STATUS_DISPLAY = {
     ParcelStatus.ISSUED: ("🎉", "Выдано"),
 }
 
+DELIVERY_DAYS = 12  # стандартный срок доставки в днях
+
 
 def _format_status(status: ParcelStatus) -> str:
     emoji, label = STATUS_DISPLAY.get(status, ("❔", status.value))
     return f"{emoji} {label}"
+
+
+def _delivery_countdown(parcel_created_at: datetime) -> str:
+    """Вычисляет обратный отсчёт доставки (12 дней от даты создания)."""
+    now = datetime.now(tz=UTC)
+    elapsed = (now - parcel_created_at).days
+    remaining = max(DELIVERY_DAYS - elapsed, 0)
+
+    if remaining == 0:
+        return "📍 Ожидается со дня на день"
+
+    # Правильное склонение: 1 день, 2-4 дня, 5-20 дней
+    if remaining % 10 == 1 and remaining % 100 != 11:
+        word = "день"
+    elif 2 <= remaining % 10 <= 4 and not (12 <= remaining % 100 <= 14):
+        word = "дня"
+    else:
+        word = "дней"
+
+    return f"⏳ ~{remaining} {word}"
 
 
 def create_client_router(client_service: ClientService) -> Router:
@@ -219,22 +243,23 @@ def create_client_router(client_service: ClientService) -> Router:
             )
             return
 
-        grouped: dict[ParcelStatus, list[str]] = {}
-        for parcel in parcels:
-            grouped.setdefault(parcel.status, []).append(parcel.track_code)
+        # Группируем по статусам, сохраняя объекты посылок
+        ready_parcels = [p for p in parcels if p.status == ParcelStatus.READY]
+        transit_parcels = [p for p in parcels if p.status == ParcelStatus.IN_TRANSIT]
 
         lines = ["📦 **Мои товары:**", ""]
 
-        if grouped.get(ParcelStatus.READY):
+        if ready_parcels:
             lines.append("✅ **Готовы к выдаче:**")
-            for track in grouped[ParcelStatus.READY]:
-                lines.append(f"  • {track}")
+            for p in ready_parcels:
+                lines.append(f"  • {p.track_code}")
             lines.append("")
 
-        if grouped.get(ParcelStatus.IN_TRANSIT):
+        if transit_parcels:
             lines.append("🚚 **В пути:**")
-            for track in grouped[ParcelStatus.IN_TRANSIT]:
-                lines.append(f"  • {track}")
+            for p in transit_parcels:
+                countdown = _delivery_countdown(p.created_at)
+                lines.append(f"  • {p.track_code}  —  {countdown}")
             lines.append("")
 
         total = len(parcels)
@@ -338,7 +363,11 @@ def create_client_router(client_service: ClientService) -> Router:
         lines = [f"🔍 **Результаты поиска: «{query}»**", ""]
         for p in parcels:
             emoji, label = STATUS_DISPLAY.get(p.status, ("❔", p.status.value))
-            lines.append(f"{emoji} **{p.track_code}** — {label}")
+            if p.status == ParcelStatus.IN_TRANSIT:
+                countdown = _delivery_countdown(p.created_at)
+                lines.append(f"{emoji} **{p.track_code}** — {label}\n   └ {countdown}")
+            else:
+                lines.append(f"{emoji} **{p.track_code}** — {label}")
 
         lines.append("")
         lines.append("Введите ещё один трек-код или нажмите /start для выхода.")
