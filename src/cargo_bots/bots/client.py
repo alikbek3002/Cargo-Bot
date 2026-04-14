@@ -47,8 +47,6 @@ def _delivery_countdown(parcel: Parcel) -> str:
     # Но для новых посылок created_at и last_seen_at почти совпадают.
     # Если parcel был создан 10 дней назад, то отсчет идет от created_at.
     start_date = parcel.created_at
-    if parcel.last_import_job and parcel.last_import_job.created_at:
-        start_date = parcel.last_import_job.created_at
         
     now = datetime.now(tz=UTC)
     elapsed = (now - start_date).days
