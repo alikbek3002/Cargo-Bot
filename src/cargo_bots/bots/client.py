@@ -41,33 +41,46 @@ STATUS_DISPLAY = {
     ParcelStatus.ISSUED: ("🎉", "Выдано"),
 }
 
+def _pluralize_days(n: int) -> str:
+    """Склонение слова 'день' для числа n."""
+    if n % 10 == 1 and n % 100 != 11:
+        return "день"
+    elif 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+        return "дня"
+    return "дней"
+
+
 def _delivery_countdown(parcel: Parcel) -> str:
-    """Вычисляет обратный отсчёт доставки (от даты импорта, на основе delivery_days)."""
-    # Если дата последнего обновления статуса (import) известна - берем её
-    # Но для новых посылок created_at и last_seen_at почти совпадают.
-    # Если parcel был создан 10 дней назад, то отсчет идет от created_at.
+    """Вычисляет примерную дату прибытия и обратный отсчёт доставки."""
+    from datetime import timedelta
+
     start_date = parcel.created_at
-        
     now = datetime.now(tz=UTC)
     elapsed = (now - start_date).days
-    
+
     # Берем delivery_days из raw_row (или 12 по умолчанию)
     delivery_days = int(parcel.raw_row.get("_delivery_days", 12)) if isinstance(parcel.raw_row, dict) else 12
-    
+
+    # Примерная дата прибытия
+    estimated_arrival = start_date + timedelta(days=delivery_days)
+    arrival_str = estimated_arrival.strftime("%d.%m.%Y")
+    sent_str = start_date.strftime("%d.%m.%Y")
+
     remaining = max(delivery_days - elapsed, 0)
 
     if remaining == 0:
-        return "📍 Ожидается со дня на день"
+        return (
+            f"📅 Отправлен: {sent_str}\n"
+            f"   📍 Ожидается со дня на день"
+        )
 
-    # Правильное склонение: 1 день, 2-4 дня, 5-20 дней
-    if remaining % 10 == 1 and remaining % 100 != 11:
-        word = "день"
-    elif 2 <= remaining % 10 <= 4 and not (12 <= remaining % 100 <= 14):
-        word = "дня"
-    else:
-        word = "дней"
+    word = _pluralize_days(remaining)
 
-    return f"⏳ ~{remaining} {word}"
+    return (
+        f"📅 Отправлен: {sent_str}\n"
+        f"   🗓 Приедет примерно: {arrival_str}\n"
+        f"   ⏳ Осталось ~{remaining} {word}"
+    )
 
 
 def create_client_router(client_service: ClientService) -> Router:
@@ -260,7 +273,7 @@ def create_client_router(client_service: ClientService) -> Router:
             lines.append("🚚 **В пути:**")
             for p in transit_parcels:
                 countdown = _delivery_countdown(p)
-                lines.append(f"  • {p.track_code}  —  {countdown}")
+                lines.append(f"  • **{p.track_code}**\n{countdown}")
             lines.append("")
 
         total = len(parcels)
@@ -366,7 +379,7 @@ def create_client_router(client_service: ClientService) -> Router:
             emoji, label = STATUS_DISPLAY.get(p.status, ("❔", p.status.value))
             if p.status == ParcelStatus.IN_TRANSIT:
                 countdown = _delivery_countdown(p)
-                lines.append(f"{emoji} **{p.track_code}** — {label}\n   └ {countdown}")
+                lines.append(f"{emoji} **{p.track_code}** — {label}\n{countdown}")
             else:
                 lines.append(f"{emoji} **{p.track_code}** — {label}")
 
